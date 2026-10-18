@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+*.pyc
+serviceAccountKey.json
+firebase-adminsdk-*.json
+
+# Firebase private credentials — never commit these
+backend/firebase-service-account.json
+backend/*service-account*.json

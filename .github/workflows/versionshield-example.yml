@@ -1,0 +1,41 @@
+# Example only: provide three source ZIPs as workflow artifacts or prepare them
+# in an earlier job. This workflow deliberately does not run uploaded app code.
+name: VersionShield Compatibility Check
+on:
+  workflow_dispatch:
+    inputs:
+      old_frontend_zip:
+        description: Repository-relative path to old frontend ZIP
+        required: true
+        type: string
+      old_backend_zip:
+        description: Repository-relative path to old backend ZIP
+        required: true
+        type: string
+      new_backend_zip:
+        description: Repository-relative path to proposed backend ZIP
+        required: true
+        type: string
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run VersionShield analysis
+        run: |
+          python tools/versionshield_cli.py \
+            --old-frontend "${{ inputs.old_frontend_zip }}" \
+            --old-backend "${{ inputs.old_backend_zip }}" \
+            --new-backend "${{ inputs.new_backend_zip }}" \
+            --output versionshield-report.json \
+            --fail-on high
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: versionshield-report
+          path: versionshield-report.json
