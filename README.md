@@ -80,3 +80,19 @@ An example manual GitHub Actions workflow is in `.github/workflows/versionshield
 - No runtime request/replay testing, disposable code-execution sandbox, login/tenant isolation, billing, audit trail, or validated compatibility probability is included.
 - Before selling to customers, add authentication and per-tenant authorization, request rate limits, persistent job/report lifecycle, retention controls, monitoring, backup/recovery, dependency/security scanning, and independent security review.
 - If adding runtime testing later, run the target backend in a network-restricted disposable container with strict CPU/memory/time limits and no secrets; never execute uploaded code in the main API process.
+
+## Mobile-client compatibility workflow (added)
+
+Use the existing three-upload analyzer as follows:
+
+1. **Legacy mobile/web client ZIP** — include source for the app version still installed by users. Supported source extensions include Kotlin (`.kt`), Java (`.java`), Dart (`.dart`), and web source.
+2. **Current backend ZIP** — include source and, when available, the current OpenAPI/Swagger JSON or YAML specification.
+3. **Proposed backend ZIP** — include the candidate backend source and its matching OpenAPI/Swagger specification.
+
+The report now identifies the likely client platform, detects a limited set of mobile HTTP frameworks and annotated API paths, and shows a compatibility matrix for the legacy client against the current and proposed backend. These are static heuristics plus contract comparison, not a claim that the app was launched or tested on a device.
+
+### Current limits
+
+- APK/AAB binary analysis, Android emulator/device execution, iOS IPA analysis, runtime replay, authentication-flow testing, and live backend integration tests are **not implemented** in this build.
+- For best contract coverage, include OpenAPI specs for both backend versions. If unavailable, source scanning is heuristic and can miss indirect API usage, serializers, dynamic endpoints, and runtime behavior.
+- Validate findings with consumer-driven contract or integration tests and a staging deployment before making production release decisions.

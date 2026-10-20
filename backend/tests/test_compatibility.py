@@ -171,3 +171,26 @@ def test_swagger_v2_definitions_and_body_parameter_are_supported():
     assert result['contract_analysis']['operations_compared'] == 1
     assert 'request_body_now_required' in categories
     assert 'response_field_removed' in categories
+
+
+def test_mobile_client_source_is_identified_and_api_annotations_are_reported():
+    import io, zipfile
+    from app.analyzer import analyze_archives
+
+    def archive(files):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for name, body in files.items():
+                zf.writestr(name, body)
+        return stream.getvalue()
+
+    mobile = archive({
+        'app/src/main/java/com/example/UserApi.kt': '''import retrofit2.http.GET\ninterface UserApi { @GET("/api/profile") fun profile() }''',
+        'app/src/main/java/com/example/User.kt': '''@SerializedName("user_name") val userName: String''',
+    })
+    old_backend = archive({'main.py': '@app.get("/api/profile")\nuser_name: str'})
+    new_backend = archive({'main.py': '@app.get("/api/profile")\nfull_name: str'})
+    result = analyze_archives(mobile, old_backend, new_backend)
+    assert result['client_platform'] == 'android_native'
+    assert 'Android Retrofit/OkHttp' in result['client_mobile_frameworks']
+    assert result['compatibility_matrix'][1]['backend'] == 'Proposed backend'

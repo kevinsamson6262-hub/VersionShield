@@ -55,6 +55,9 @@ def read_archive(raw: bytes):
 
 def _scan_source(files, role):
     fields, routes, matched = set(), set(), []
+    extensions = {PurePosixPath(name).suffix.lower() for name, _ in files}
+    platform = 'flutter' if '.dart' in extensions else 'android_native' if extensions & {'.kt', '.java'} else 'web' if extensions & {'.tsx', '.ts', '.jsx', '.js'} else 'backend_or_unknown'
+    api_calls, mobile_frameworks = set(), set()
     route_patterns = [
         r"@(?:app|router)\.(?:get|post|put|patch|delete|options|head)\(\s*['\"]([^'\"]+)",
         r"(?:app|router)\.(?:get|post|put|patch|delete|options|head)\(\s*['\"]([^'\"]+)",
@@ -68,12 +71,21 @@ def _scan_source(files, role):
         r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\??\s*:\s*(?:string|number|boolean)\b',
         r'\b(?:final|late|var)\s+(?:String|int|double|bool)\s+([A-Za-z_][A-Za-z0-9_]*)',
     ]
+    api_patterns = [r'@(?:GET|POST|PUT|PATCH|DELETE)\s*\(\s*[\"\']([^\"\']+)', r'(?:Dio|http|client|apiClient)\.(?:get|post|put|patch|delete)\s*\(\s*[\"\']([^\"\']+)', r'baseUrl\s*[:=]\s*[\"\']([^\"\']+)', r'@(?:SerializedName|Json|JsonProperty|SerialName)\s*\(\s*[\"\']([^\"\']+)']
     for name, source in files:
         found = False
+        lowname = name.lower()
+        if lowname.endswith('.dart') and any(x in source for x in ('package:dio/', 'package:http/')): mobile_frameworks.add('Dart HTTP/Dio')
+        if lowname.endswith(('.kt', '.java')) and any(x in source for x in ('retrofit2.http', 'okhttp3.', 'retrofit2.Retrofit')): mobile_frameworks.add('Android Retrofit/OkHttp')
+        if lowname.endswith(('.kt', '.java')) and 'androidx.compose' in source: mobile_frameworks.add('Android Jetpack Compose')
         for pat in route_patterns:
             for value in re.findall(pat, source, re.I):
                 if value.startswith('/') and len(value) < 160:
                     routes.add(value); found = True
+        for pat in api_patterns:
+            for value in re.findall(pat, source, re.I):
+                if value.startswith('/') or value.startswith('http'):
+                    api_calls.add(value[:180]); found = True
         for pat in field_patterns:
             for value in re.findall(pat, source):
                 if value.lower() not in {'true','false','null','none','string','number','object','array'}:
@@ -81,7 +93,7 @@ def _scan_source(files, role):
         if found:
             matched.append(name)
     noise = {'id','key','type','name','value','data','result','response','body','payload','json','status','message','error','code','token','url','path','method','headers','params','query','request','model','class','return','self','app','router'}
-    return {'role': role, 'files_scanned': len(files), 'files_with_matches': matched[:100], 'routes': sorted(routes), 'fields': sorted(f for f in fields if f.lower() not in noise)[:500]}
+    return {'role': role, 'platform_detected': platform, 'source_extensions': sorted(extensions), 'mobile_frameworks_detected': sorted(mobile_frameworks), 'api_calls_or_serialized_names': sorted(api_calls)[:300], 'files_scanned': len(files), 'files_with_matches': matched[:100], 'routes': sorted(routes), 'fields': sorted(f for f in fields if f.lower() not in noise)[:500]}
 
 
 def _load_openapi_documents(files):
@@ -401,7 +413,13 @@ def analyze_archives(old_frontend: bytes, old_backend: bytes, new_backend: bytes
     if not old_specs or not new_specs:
         warnings.append('OpenAPI contract comparison not run: include an OpenAPI/Swagger JSON or YAML file in both backend ZIPs for deeper contract analysis.')
     return {
-        'analysis_type':'static_source_and_openapi_contract_analysis', 'status':status,
+        'analysis_type':'mobile_and_backend_static_compatibility_analysis', 'status':status,
+        'client_platform': fe.get('platform_detected', 'unknown'),
+        'client_mobile_frameworks': fe.get('mobile_frameworks_detected', []),
+        'compatibility_matrix': [
+            {'client': 'Uploaded legacy client', 'backend': 'Current backend', 'relationship': 'baseline_reference', 'status': 'baseline_not_runtime_tested'},
+            {'client': 'Uploaded legacy client', 'backend': 'Proposed backend', 'relationship': 'upgrade_candidate', 'status': 'potential_breaking_changes' if (any(f['severity'] in ('critical','high') for f in findings) or removed or routes_removed) else 'no_obvious_breaks_detected', 'risk_score': risk_score},
+        ],
         'analysis_coverage': {
             'source_scan': 'completed',
             'openapi_contract': 'completed' if old_specs and new_specs else 'skipped_missing_spec',
@@ -417,6 +435,7 @@ def analyze_archives(old_frontend: bytes, old_backend: bytes, new_backend: bytes
             'Risk score is a heuristic prioritization score, not a statistically validated probability or compatibility percentage.',
             'OpenAPI comparison only runs when both backend ZIPs include a recognizable OpenAPI/Swagger JSON or YAML specification; it compares declared contracts, not runtime behavior.',
             'Schema comparison supports a useful subset of OpenAPI; advanced composition, callbacks, webhooks, external references and all JSON Schema edge cases may not be fully interpreted.',
+            'Mobile source support detects Kotlin/Java Android and Dart/Flutter source files and heuristically extracts API paths and serialized field names; it does not install or execute an APK/AAB.',
             'Source scanning is heuristic and may miss aliases, serializers, dynamic routes, GraphQL, generated contracts, indirect calls and framework-specific behavior.',
             'Authentication policy, database migrations, latency, side effects and real mobile-device behavior are not runtime-tested.',
             'Use automated contract/integration tests and staged rollout before relying on results for production release decisions.'
